@@ -50,7 +50,7 @@ func (cr *ClusterResources) ToMetricData() (metricData []*cloudwatch.MetricDatum
 		for instanceType, value := range metricResources {
 			dimensions := []*cloudwatch.Dimension{
 				clusterDimension,
-				&cloudwatch.Dimension{
+				{
 					Name:  aws.String("InstanceType"),
 					Value: aws.String(instanceType),
 				},
