@@ -2,11 +2,23 @@
 Package `github.com/shatil/snitch` collects and (optionally) publishes ECS
 Cluster capacity metrics.
 
+[//]: # (Thank you, aws-lambda-go, for the badges.)
+[![Documentation][1]][2]
+[![Build Status][5]][6]
+[![Go Report Card][3]][4]
+[![Code Coverage][7]][8]
+
+[1]: https://godoc.org/github.com/shatil/snitch?status.svg
+[2]: https://godoc.org/github.com/shatil/snitch
+[3]: https://goreportcard.com/badge/github.com/shatil/snitch
+[4]: https://goreportcard.com/report/github.com/shatil/snitch
+[5]: https://travis-ci.org/shatil/snitch.svg?branch=master
+[6]: https://travis-ci.org/shatil/snitch
+[7]: https://codecov.io/gh/shatil/snitch/branch/master/graph/badge.svg
+[8]: https://codecov.io/gh/shatil/snitch
+
 AWS SDK requires you to specify the AWS Region you wish to interact with,
 which you can do at runtime with environment variable `AWS_REGION`.
-
-# Documentation
-On GoDoc: https://godoc.org/github.com/shatil/snitch
 
 # Development
 `git clone` into your `$GOPATH/src/`, which may be `~/go/src/`.
@@ -24,8 +36,8 @@ Summary of interesting `Makefile` targets:
 `make dep` will fetch dependencies to `vendor/`.
 
 ## Test
-`make test` runs all tests and `make cover` will do that _and_ generate HTML
-code coverage.
+`make test` runs all tests and `make cover-html` will do that _and_ generate
+HTML code coverage.
 
 ## Run
 You can build and run the binaries or pick a binary and:
