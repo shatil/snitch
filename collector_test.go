@@ -123,7 +123,7 @@ func (fake *FakeECS) ListTasksPages(input *ecs.ListTasksInput, pager func(*ecs.L
 	return fake.errorToReturn
 }
 
-// DescribeTasks fake-decribes ECS Tasks.
+// DescribeTasks fake-describes ECS Tasks.
 //
 // Although in reality it's supposed to be related to the Task ARN and all...
 // it's actually not. We care just for a few of the fields embedded in each
