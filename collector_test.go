@@ -248,7 +248,7 @@ func TestSnitcher_DiscoverTasks(t *testing.T) {
 	for page := range sn.DiscoverTasks(fake.expectedCluster) {
 		for index, arn := range fake.expectedTaskArns {
 			if arn != *page[index] {
-				t.Errorf("Expected %q ECS Task ARN but got %q", arn, &page[index])
+				t.Errorf("Expected %q ECS Task ARN but got %q", arn, *page[index])
 			}
 		}
 	}
