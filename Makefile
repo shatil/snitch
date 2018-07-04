@@ -2,11 +2,11 @@ export PACKAGE ?= github.com/shatil/snitch
 
 # Tests, outputting coverage summary.
 test:
-	go test -cover
+	go test -cover -race -coverprofile=coverage.txt -covermode=atomic
 
 # Tests, showing HTML coverage summary.
-cover:
-	go test -coverprofile=coverage.out && go tool cover -html=coverage.out
+cover-html: test
+	go tool cover -html=coverage.txt
 
 # Ensures dependencies are present.
 dep:
