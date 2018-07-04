@@ -266,7 +266,12 @@ func TestSnitcher_MeasureResources(t *testing.T) {
 	if fake.expectedMemory != memory {
 		t.Errorf("expected %d memory but got %d", fake.expectedMemory, memory)
 	}
+}
+
+func TestSnitcher_MeasureResourcesError(t *testing.T) {
+	fake := NewFakeECS(t)
 	fake.errorToReturn = errors.New("cpu, memory ought to be zero when DiscoverTasks errors")
+	sn := &Snitcher{ECS: fake}
 	if cpu, memory := sn.MeasureResources(fake.expectedCluster, <-sn.DiscoverTasks(fake.expectedCluster)); cpu+memory != 0 {
 		t.Errorf("expected cpu, memory to be 0, 0 during error, but got %d, %d", cpu, memory)
 	}
