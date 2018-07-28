@@ -39,9 +39,7 @@
 package snitch
 
 import (
-	"flag"
 	"log"
-	"os"
 	"strconv"
 	"strings"
 
@@ -60,30 +58,21 @@ type Snitcher struct {
 	ECS        ecsiface.ECSAPI
 	// Namespace in CloudWatch to publish metrics to.
 	Namespace *string
+	// Whether to publish metrics to CloudWatch.
+	ShouldPublish *bool
 }
 
-// NewSnitcher creates a fresh Snitcher to connect to specified AWS Region with
-// your credentials.
-//
-// Correctly-formatted credentials file lives at ~/.aws/credentials and looks
-// like: https://docs.aws.amazon.com/cli/latest/userguide/cli-config-files.html
-// 	[default]
-// 	aws_access_key_id=AKIAIOSFODNN7EXAMPLE
-// 	aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
-//
-// Specify with environment variable AWS_REGION or ~/.aws/config which Region
-// to read ECS Cluster information from _and_ in which region to publish
-// CloudWatch metrics. CloudWatch metrics publish to a specific namespace among
-// "Custom Namespaces":
-// https://console.aws.amazon.com/cloudwatch/home#metricsV2:0
-func NewSnitcher(namespace *string) *Snitcher {
+// WithAWS adds AWS clients to Snitcher.
+func (sn *Snitcher) WithAWS() *Snitcher {
 	conf := &aws.Config{}
 	sess := session.Must(session.NewSession(conf))
-	return &Snitcher{
-		ECS:        ecsiface.ECSAPI(ecs.New(sess)),
-		CloudWatch: cloudwatchiface.CloudWatchAPI(cloudwatch.New(sess)),
-		Namespace:  namespace,
+	if sn.CloudWatch == nil {
+		sn.CloudWatch = cloudwatchiface.CloudWatchAPI(cloudwatch.New(sess))
 	}
+	if sn.ECS == nil {
+		sn.ECS = ecsiface.ECSAPI(ecs.New(sess))
+	}
+	return sn
 }
 
 // DiscoverTasks communicates pages of ECS Tasks' ARNs discovered in cluster.
@@ -331,20 +320,15 @@ func (sn *Snitcher) Publish(metricData []*cloudwatch.MetricDatum) {
 	}
 }
 
-// Main measures and maybe publishes findings.
+// Run measures and maybe publishes findings.
 //
 // During CLI or AWS Lambda usage, this is your entrypoint function. Lambda can
 // use these handy environment variables in place of CLI arguments:
 //	AWS_REGION for AWS Region (required unless ~/.aws/config sets it)
-//	METRICS_NAMESPACE for AWS CloudWatch namespace
-//	METRICS_PUBLISH for (set to true) whether to publish metrics
-func Main() {
-	namespace := flag.String("n", os.Getenv("METRICS_NAMESPACE"), "metrics namespace in CloudWatch")
-	publish := flag.Bool("p", os.Getenv("METRICS_PUBLISH") == "true", "publish findings to CloudWatch")
-	flag.Parse()
-	sn := NewSnitcher(namespace)
+func Run(sn *Snitcher) {
+	sn.WithAWS()
 	metricData := sn.Measure()
-	if *publish {
+	if *sn.ShouldPublish {
 		sn.Publish(metricData)
 	}
 }

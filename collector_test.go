@@ -13,6 +13,23 @@ import (
 	"github.com/aws/aws-sdk-go/service/ecs/ecsiface"
 )
 
+// FakeContainerInstance creates a mock container instance for testing.
+//
+// Without "ecs.instance-type" attribute, MetricData validation will fail since
+// InstanceType is a required dimension.
+func NewFakeContainerInstance(reg, rem []*ecs.Resource) *ecs.ContainerInstance {
+	return &ecs.ContainerInstance{
+		Attributes: []*ecs.Attribute{
+			{
+				Name:  aws.String("ecs.instance-type"),
+				Value: aws.String("fake.2xlarge"),
+			},
+		},
+		RegisteredResources: reg,
+		RemainingResources:  rem,
+	}
+}
+
 // FakeCloudWatch mocks CloudWatch for testing, with some fields added.
 type FakeCloudWatch struct {
 	cloudwatchiface.CloudWatchAPI
@@ -29,10 +46,12 @@ func (fake *FakeCloudWatch) PutMetricData(input *cloudwatch.PutMetricDataInput) 
 // FakeECS mocks AWS ECS to give us the responses we need.
 type FakeECS struct {
 	ecsiface.ECSAPI
+	checkCluster                  bool                     // Check that expectedCluster name matches.
 	errorToReturn                 error                    // `error` to return from fake methods.
 	expectedCluster               *string                  // Cluster name we expect during testing.
 	expectedClusterArns           []string                 // Expected ECS Cluster ARNs.
 	expectedCPU                   int                      // Expected CPU Unit count for LCM container size.
+	expectedDescribeTasksOutput   *ecs.DescribeTasksOutput // Expected response by DescribeTasks.
 	expectedMemory                int                      // Expected Memory (RAM in MiB) for LCM container size.
 	expectedContainerInstanceArns []string                 // Expected ECS Container Instance ARNs.
 	expectedContainerInstances    []*ecs.ContainerInstance // Expected ECS Container Instance ARNs.
@@ -47,6 +66,7 @@ type FakeECS struct {
 // NewFakeECS constructs a new mock ECS "service" with pre-populated data.
 func NewFakeECS(t *testing.T) *FakeECS {
 	fake := &FakeECS{
+		checkCluster:    true,
 		expectedCluster: aws.String("fake-ecs-cluster"),
 		expectedClusterArns: []string{
 			"arn:aws:ecs:us-east-1:123456789012:cluster/fake-ecs-cluster",
@@ -102,19 +122,26 @@ func NewFakeECS(t *testing.T) *FakeECS {
 		},
 	}
 	fake.expectedContainerInstances = []*ecs.ContainerInstance{
-		{RegisteredResources: fake.expectedRegistered, RemainingResources: fake.expectedRemaining},
-		{RegisteredResources: fake.expectedRegistered, RemainingResources: fake.expectedRemaining},
-		{RegisteredResources: fake.expectedRegistered, RemainingResources: fake.expectedRemaining},
+		NewFakeContainerInstance(fake.expectedRegistered, fake.expectedRemaining),
+		NewFakeContainerInstance(fake.expectedRegistered, fake.expectedRemaining),
+		NewFakeContainerInstance(fake.expectedRegistered, fake.expectedRemaining),
 	}
 	fake.expectedRegisteredPossible = len(fake.expectedContainerInstances) * ContainersPossible(fake.expectedCPU, fake.expectedMemory, fake.expectedContainerInstances[0].RegisteredResources)
 	fake.expectedRemainingPossible = len(fake.expectedContainerInstances) * ContainersPossible(fake.expectedCPU, fake.expectedMemory, fake.expectedContainerInstances[0].RemainingResources)
+	fake.expectedDescribeTasksOutput = &ecs.DescribeTasksOutput{
+		Tasks: []*ecs.Task{
+			{Cpu: aws.String(strconv.Itoa(fake.expectedCPU)), Memory: aws.String("1440")},
+			{Cpu: aws.String("1024"), Memory: aws.String(strconv.Itoa(fake.expectedMemory))},
+			{Cpu: aws.String("invalidCPU"), Memory: aws.String("invalidMemory")},
+		},
+	}
 	return fake
 }
 
 // ListTasksPages fake-paginates listing of ECS Tasks.
 func (fake *FakeECS) ListTasksPages(input *ecs.ListTasksInput, pager func(*ecs.ListTasksOutput, bool) bool) error {
-	if *fake.expectedCluster != *input.Cluster {
-		fake.t.Errorf("Expected cluster name %q but got %q", *fake.expectedCluster, *input.Cluster)
+	if fake.checkCluster && *fake.expectedCluster != *input.Cluster {
+		fake.t.Errorf("expected cluster name %q but got %q", *fake.expectedCluster, *input.Cluster)
 	}
 	output := &ecs.ListTasksOutput{
 		TaskArns: aws.StringSlice(fake.expectedTaskArns),
@@ -129,14 +156,7 @@ func (fake *FakeECS) ListTasksPages(input *ecs.ListTasksInput, pager func(*ecs.L
 // it's actually not. We care just for a few of the fields embedded in each
 // Task.
 func (fake *FakeECS) DescribeTasks(input *ecs.DescribeTasksInput) (*ecs.DescribeTasksOutput, error) {
-	output := &ecs.DescribeTasksOutput{
-		Tasks: []*ecs.Task{
-			{Cpu: aws.String(strconv.Itoa(fake.expectedCPU)), Memory: aws.String("1440")},
-			{Cpu: aws.String("1024"), Memory: aws.String(strconv.Itoa(fake.expectedMemory))},
-			{Cpu: aws.String("invalidCPU"), Memory: aws.String("invalidMemory")},
-		},
-	}
-	return output, fake.errorToReturn
+	return fake.expectedDescribeTasksOutput, fake.errorToReturn
 }
 
 func (fake *FakeECS) ListContainerInstances(input *ecs.ListContainerInstancesInput) (*ecs.ListContainerInstancesOutput, error) {
@@ -150,8 +170,8 @@ func (fake *FakeECS) ListContainerInstances(input *ecs.ListContainerInstancesInp
 }
 
 func (fake *FakeECS) DescribeContainerInstances(input *ecs.DescribeContainerInstancesInput) (*ecs.DescribeContainerInstancesOutput, error) {
-	if fake.expectedCluster != input.Cluster {
-		fake.t.Errorf("expected %q cluster name but got %q", *fake.expectedCluster, *input.Cluster)
+	if fake.checkCluster && *fake.expectedCluster != *input.Cluster {
+		fake.t.Errorf("expected cluster name %q but got %q", *fake.expectedCluster, *input.Cluster)
 	}
 	output := &ecs.DescribeContainerInstancesOutput{
 		ContainerInstances: fake.expectedContainerInstances,
@@ -167,19 +187,6 @@ func (fake *FakeECS) ListClustersPages(input *ecs.ListClustersInput, pager func(
 		pager(output, i+1 == len(fake.expectedClusterArns))
 	}
 	return fake.errorToReturn
-}
-
-// TestNewSnitcher ensures cluster and region parameters are correctly configured.
-//
-// While it'd be nice to test for AWS Region, too, it's pretty obvious when
-// Region is incorrect... and without adding bulk to runtime code purely to be
-// able to test it, there doesn't seem to be an easy way.
-func TestNewSnitcher(t *testing.T) {
-	namespace := aws.String("Distinguished/Namespace")
-	sn := NewSnitcher(namespace)
-	if namespace != sn.Namespace {
-		t.Errorf("Expected %q as Namespace but got %q", *namespace, *sn.Namespace)
-	}
 }
 
 // TestSnitcherPublish attempts to fake-publish to CloudWatch.
@@ -382,4 +389,50 @@ func TestSnitcher_DiscoverClustersError(t *testing.T) {
 	}
 	sn := &Snitcher{ECS: fake}
 	<-sn.DiscoverClusters()
+}
+
+func TestSnitcher_WithAWS(t *testing.T) {
+	sn := &Snitcher{}
+	if sn != sn.WithAWS() {
+		t.Errorf("expected Snitcher to modify and return itself")
+	}
+	if sn.CloudWatch == nil {
+		t.Errorf("expected Snitcher to have CloudWatch client")
+	}
+	if sn.ECS == nil {
+		t.Errorf("expected Snitcher to have ECS client")
+	}
+
+}
+
+func TestRun(t *testing.T) {
+	cw := &FakeCloudWatch{}
+	ecs := NewFakeECS(t)
+	// ListTasksPages and DescribeContainerInstances check for matching cluster
+	// name, which in this case we don't want.
+	ecs.checkCluster = false
+	sn := &Snitcher{
+		CloudWatch:    cw,
+		ECS:           ecs,
+		Namespace:     aws.String("Collector/Test"),
+		ShouldPublish: aws.Bool(true),
+	}
+	Run(sn)
+	if len(cw.payload) == 0 {
+		t.Error("missing FakeCloudWatch payload after test")
+	}
+}
+
+func TestSnitcher_MeasureClusterEmpty(t *testing.T) {
+	// Ensure empty response from FakeECS.
+	ecs := &FakeECS{
+		expectedDescribeTasksOutput: &ecs.DescribeTasksOutput{},
+	}
+	sn := &Snitcher{
+		ECS: ecs,
+	}
+	actual := sn.MeasureCluster(aws.String("this cluster doesn't exist"))
+	if len(actual) != 0 {
+		t.Errorf("expected 0 data points but got %d", len(actual))
+	}
 }
